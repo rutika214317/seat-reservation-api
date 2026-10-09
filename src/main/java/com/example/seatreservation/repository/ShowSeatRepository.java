@@ -15,6 +15,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface ShowSeatRepository extends JpaRepository<ShowSeatEntity, UUID> {
 
+	long countByShowIdAndStatus(UUID showId, SeatStatus status);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 			select seat from ShowSeatEntity seat

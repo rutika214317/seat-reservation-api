@@ -13,6 +13,7 @@ import com.example.seatreservation.model.ReservationQuotaLockId;
 import com.example.seatreservation.model.ReservationStatus;
 import com.example.seatreservation.model.SeatStatus;
 import com.example.seatreservation.model.ShowEntity;
+import com.example.seatreservation.observability.ReservationMetrics;
 import com.example.seatreservation.repository.ReservationQuotaLockRepository;
 import com.example.seatreservation.repository.ReservationRepository;
 import com.example.seatreservation.repository.ShowRepository;
@@ -21,6 +22,8 @@ import jakarta.persistence.EntityManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -33,18 +36,21 @@ public class ReservationService {
 	private final ReservationRepository reservationRepository;
 	private final ReservationQuotaLockRepository quotaLockRepository;
 	private final EntityManager entityManager;
+	private final ReservationMetrics reservationMetrics;
 
 	public ReservationService(
 			ShowRepository showRepository,
 			ShowSeatRepository showSeatRepository,
 			ReservationRepository reservationRepository,
 			ReservationQuotaLockRepository quotaLockRepository,
-			EntityManager entityManager) {
+			EntityManager entityManager,
+			ReservationMetrics reservationMetrics) {
 		this.showRepository = showRepository;
 		this.showSeatRepository = showSeatRepository;
 		this.reservationRepository = reservationRepository;
 		this.quotaLockRepository = quotaLockRepository;
 		this.entityManager = entityManager;
+		this.reservationMetrics = reservationMetrics;
 	}
 
 	@Transactional
@@ -75,19 +81,20 @@ public class ReservationService {
 				throw new ResponseStatusException(
 						HttpStatus.CONFLICT, "Idempotency key was already used for a different request");
 			}
+			reservationMetrics.recordIdempotentReplay();
 			return toResponse(reservation);
 		}
 
 		var seats = showSeatRepository.findByShowAndLabelsForUpdate(showId, requestedSeats);
 		if (seats.size() != requestedSeats.size()
 				|| seats.stream().anyMatch(seat -> seat.getStatus() != SeatStatus.AVAILABLE)) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "One or more requested seats are unavailable");
+			throw decline("seat-taken", "One or more requested seats are unavailable");
 		}
 
 		long alreadyReserved = showSeatRepository.countByShowIdAndReservedByAndStatus(
 				showId, userId, SeatStatus.CONFIRMED);
 		if (alreadyReserved + requestedSeats.size() > PER_USER_LIMIT) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "Per-user seat limit exceeded");
+			throw decline("per-user-limit", "Per-user seat limit exceeded");
 		}
 		if (show.getPricePaise() > Long.MAX_VALUE / requestedSeats.size()) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation amount exceeds the supported range");
@@ -97,14 +104,32 @@ public class ReservationService {
 		int claimed = showSeatRepository.confirmAvailable(
 				showId, requestedSeats, SeatStatus.AVAILABLE, SeatStatus.CONFIRMED, userId, reservationId);
 		if (claimed != requestedSeats.size()) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "One or more requested seats are unavailable");
+			throw decline("seat-taken", "One or more requested seats are unavailable");
 		}
 
 		ReservationEntity reservation = new ReservationEntity(
 				reservationId, show, userId, idempotencyKey, requestHash,
 				show.getPricePaise() * requestedSeats.size(), requestedSeats);
 		reservationRepository.save(reservation);
+		recordConfirmedAfterCommit();
 		return toResponse(reservation);
+	}
+
+	private ResponseStatusException decline(String reason, String message) {
+		reservationMetrics.recordDeclined(reason);
+		return new ResponseStatusException(HttpStatus.CONFLICT, message);
+	}
+
+	private void recordConfirmedAfterCommit() {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			throw new IllegalStateException("Reservation transaction synchronization is not active");
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				reservationMetrics.recordConfirmed();
+			}
+		});
 	}
 
 	@Transactional

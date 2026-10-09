@@ -9,6 +9,7 @@ import com.example.seatreservation.dto.ShowResponse;
 import com.example.seatreservation.model.ReservationQuotaLockEntity;
 import com.example.seatreservation.model.ReservationQuotaLockId;
 import com.example.seatreservation.model.ShowEntity;
+import com.example.seatreservation.observability.ReservationMetrics;
 import com.example.seatreservation.repository.ReservationQuotaLockRepository;
 import com.example.seatreservation.repository.ShowRepository;
 import org.springframework.http.HttpStatus;
@@ -22,14 +23,17 @@ public class ShowService {
 	private final ShowRepository showRepository;
 	private final ReservationQuotaLockRepository quotaLockRepository;
 	private final ReservationUserRegistry userRegistry;
+	private final ReservationMetrics reservationMetrics;
 
 	public ShowService(
 			ShowRepository showRepository,
 			ReservationQuotaLockRepository quotaLockRepository,
-			ReservationUserRegistry userRegistry) {
+			ReservationUserRegistry userRegistry,
+			ReservationMetrics reservationMetrics) {
 		this.showRepository = showRepository;
 		this.quotaLockRepository = quotaLockRepository;
 		this.userRegistry = userRegistry;
+		this.reservationMetrics = reservationMetrics;
 	}
 
 	@Transactional
@@ -45,6 +49,7 @@ public class ShowService {
 				.map(username -> new ReservationQuotaLockEntity(
 						new ReservationQuotaLockId(saved.getId(), username)))
 				.toList());
+		reservationMetrics.registerShowAfterCommit(saved.getId());
 		return toResponse(saved);
 	}
 

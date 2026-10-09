@@ -3,6 +3,7 @@ package com.example.seatreservation;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -321,6 +322,64 @@ class SeatReservationApiApplicationTests {
 
 		mockMvc.perform(get("/swagger-ui/index.html"))
 				.andExpect(status().isOk());
+	}
+
+	@Test
+	void exposesReadinessLivenessAndPrometheusReservationMetrics() throws Exception {
+		MvcResult createdShow = mockMvc.perform(post("/shows")
+						.with(httpBasic("admin", "change-this-local-password"))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name":"metrics-test","seats":["M1","M2"],"price_paise":100}
+								"""))
+				.andExpect(status().isCreated())
+				.andReturn();
+		String showId = com.jayway.jsonpath.JsonPath.read(
+				createdShow.getResponse().getContentAsString(), "$.id");
+
+		mockMvc.perform(get("/actuator/health/liveness"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("UP"));
+		mockMvc.perform(get("/actuator/health/readiness"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("UP"));
+		mockMvc.perform(get("/actuator/health"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("UP"));
+
+		String requestId = "3f2f6520-d709-4d1d-8fc9-2543934ced41";
+		mockMvc.perform(post("/shows/{id}/reserve", showId)
+						.with(httpBasic("alice", "alice-password"))
+						.header("X-Request-Id", requestId)
+						.header("Idempotency-Key", "metrics-order")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"seats":["M1"]}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(header().string("X-Request-Id", requestId));
+		mockMvc.perform(post("/shows/{id}/reserve", showId)
+						.with(httpBasic("alice", "alice-password"))
+						.header("Idempotency-Key", "metrics-order")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"seats":["M1"]}
+								"""))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/actuator/prometheus"))
+				.andExpect(status().isOk())
+				.andExpect(result -> {
+					String scrape = result.getResponse().getContentAsString();
+					org.junit.jupiter.api.Assertions.assertTrue(
+							scrape.contains("seat_reservations_confirmed_total"));
+					org.junit.jupiter.api.Assertions.assertTrue(
+							scrape.contains("seat_reservations_declined_total"));
+					org.junit.jupiter.api.Assertions.assertTrue(
+							scrape.contains("seat_reservations_idempotent_replays_total"));
+					org.junit.jupiter.api.Assertions.assertTrue(
+							scrape.contains("seat_reservation_seats_available{show_id=\"" + showId + "\"} 1.0"));
+				});
 	}
 
 	private String createShow(String... seats) throws Exception {
