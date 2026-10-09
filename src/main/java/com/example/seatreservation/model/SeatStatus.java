@@ -1,4 +1,4 @@
-package com.example.seatreservation.show;
+package com.example.seatreservation.model;
 
 public enum SeatStatus {
 	AVAILABLE,

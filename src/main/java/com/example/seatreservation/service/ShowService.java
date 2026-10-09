@@ -1,8 +1,16 @@
-package com.example.seatreservation.show;
+package com.example.seatreservation.service;
 
 import java.util.HashSet;
 import java.util.UUID;
 
+import com.example.seatreservation.config.ReservationUserRegistry;
+import com.example.seatreservation.dto.CreateShowRequest;
+import com.example.seatreservation.dto.ShowResponse;
+import com.example.seatreservation.model.ReservationQuotaLockEntity;
+import com.example.seatreservation.model.ReservationQuotaLockId;
+import com.example.seatreservation.model.ShowEntity;
+import com.example.seatreservation.repository.ReservationQuotaLockRepository;
+import com.example.seatreservation.repository.ShowRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,9 +20,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class ShowService {
 
 	private final ShowRepository showRepository;
+	private final ReservationQuotaLockRepository quotaLockRepository;
+	private final ReservationUserRegistry userRegistry;
 
-	public ShowService(ShowRepository showRepository) {
+	public ShowService(
+			ShowRepository showRepository,
+			ReservationQuotaLockRepository quotaLockRepository,
+			ReservationUserRegistry userRegistry) {
 		this.showRepository = showRepository;
+		this.quotaLockRepository = quotaLockRepository;
+		this.userRegistry = userRegistry;
 	}
 
 	@Transactional
@@ -25,7 +40,12 @@ public class ShowService {
 
 		ShowEntity show = new ShowEntity(request.name(), request.pricePaise());
 		request.seats().forEach(show::addSeat);
-		return toResponse(showRepository.save(show));
+		ShowEntity saved = showRepository.save(show);
+		quotaLockRepository.saveAll(userRegistry.usernames().stream()
+				.map(username -> new ReservationQuotaLockEntity(
+						new ReservationQuotaLockId(saved.getId(), username)))
+				.toList());
+		return toResponse(saved);
 	}
 
 	@Transactional(readOnly = true)

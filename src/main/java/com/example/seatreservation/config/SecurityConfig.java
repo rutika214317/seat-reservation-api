@@ -14,6 +14,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.http.HttpMethod;
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class SecurityConfig {
@@ -44,13 +46,27 @@ public class SecurityConfig {
 	}
 
 	@Bean
-	UserDetailsService userDetailsService(
+	ReservationUserRegistry reservationUserRegistry(
 			@Value("${app.security.basic.username}") String username,
 			@Value("${app.security.basic.password}") String password,
+			@Value("${app.security.reservation-users:user:change-this-local-password}") String reservationUsers) {
+		return new ReservationUserRegistry(username, password, reservationUsers);
+	}
+
+	@Bean
+	UserDetailsService userDetailsService(
+			ReservationUserRegistry registry,
 			PasswordEncoder passwordEncoder) {
-		return new InMemoryUserDetailsManager(User.withUsername(username)
-				.password(passwordEncoder.encode(password))
-				.roles("ADMIN")
-				.build());
+		List<org.springframework.security.core.userdetails.UserDetails> users = new ArrayList<>();
+		registry.credentials().forEach((username, password) -> {
+			var builder = User.withUsername(username).password(passwordEncoder.encode(password));
+			if (username.equals(registry.adminUsername())) {
+				builder.roles("ADMIN", "USER");
+			} else {
+				builder.roles("USER");
+			}
+			users.add(builder.build());
+		});
+		return new InMemoryUserDetailsManager(users);
 	}
 }

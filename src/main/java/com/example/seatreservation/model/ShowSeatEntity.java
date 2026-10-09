@@ -1,4 +1,4 @@
-package com.example.seatreservation.show;
+package com.example.seatreservation.model;
 
 import java.util.UUID;
 
@@ -31,6 +31,12 @@ public class ShowSeatEntity {
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
 	private SeatStatus status;
+
+	@Column(name = "reserved_by", length = 100)
+	private String reservedBy;
+
+	@Column(name = "reservation_id")
+	private UUID reservationId;
 
 	protected ShowSeatEntity() {
 	}

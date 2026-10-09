@@ -1,8 +1,11 @@
-package com.example.seatreservation.show;
+package com.example.seatreservation.controller;
 
 import java.net.URI;
 import java.util.UUID;
 
+import com.example.seatreservation.dto.CreateShowRequest;
+import com.example.seatreservation.dto.ShowResponse;
+import com.example.seatreservation.service.ShowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;

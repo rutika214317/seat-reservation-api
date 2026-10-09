@@ -1,4 +1,4 @@
-package com.example.seatreservation.show;
+package com.example.seatreservation.model;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,13 +31,13 @@ public class ShowEntity {
 	protected ShowEntity() {
 	}
 
-	ShowEntity(String name, long pricePaise) {
+	public ShowEntity(String name, long pricePaise) {
 		this.id = UUID.randomUUID();
 		this.name = name;
 		this.pricePaise = pricePaise;
 	}
 
-	void addSeat(String label) {
+	public void addSeat(String label) {
 		seats.add(new ShowSeatEntity(this, label));
 	}
 
