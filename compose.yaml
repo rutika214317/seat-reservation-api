@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: seat_reservation
+      POSTGRES_USER: seatreservation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-compose-only-password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seatreservation -d seat_reservation"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/seat_reservation
+      DATABASE_USERNAME: seatreservation
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-local-compose-only-password}
+      JPA_DDL_AUTO: update
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-this-local-password}
+      APP_SECURITY_RESERVATIONUSERS: ${APP_SECURITY_RESERVATIONUSERS:-buyer01:local-buyer-01,buyer02:local-buyer-02,buyer03:local-buyer-03,buyer04:local-buyer-04,buyer05:local-buyer-05,buyer06:local-buyer-06,buyer07:local-buyer-07,buyer08:local-buyer-08,limit-user:local-limit-pass,retry-user:local-retry-pass}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  prometheus-data:
